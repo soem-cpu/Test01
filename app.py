@@ -2,96 +2,76 @@ import streamlit as st
 import pandas as pd
 import importlib.util
 import os
-import tempfile
 
-# Set page config
-st.set_page_config(
-    page_title="TB Data Verification App",
-    layout="centered"
-)
+# Title of the app
+st.title("Tuberculosis Data Analysis App")
 
-st.title("🧪 TB Data Verification App")
-st.markdown("This tool helps you upload a custom rule file and TB data Excel file for verification.")
+# Image URL
+image_url = "https://upload.wikimedia.org/wikipedia/commons/thumb/3/3c/Pulmonary_tuberculosis_01.jpg/640px-Pulmonary_tuberculosis_01.jpg"
+st.image(image_url, caption="Understanding Tuberculosis Data")
 
-# --- Tabs ---
-tab1, tab2 = st.tabs(["📜 Upload Rule File", "📊 Upload TB Data File"])
+# File uploaders
+rule_file = st.file_uploader("Upload Rule File (.py)", type=["py"])
+excel_file = st.file_uploader("Upload Excel File (.xlsx, .xls)", type=["xlsx", "xls"])
 
-# --- Tab 1: Rule File Upload ---
-with tab1:
-    st.header("📜 Upload Python Rule File")
-    st.markdown("""
-    Upload a `.py` file that contains the rule functions to validate your TB data.
+# Sidebar for additional options
+with st.sidebar:
+    st.header("Analysis Options")
+    filter_data = st.checkbox("Apply Data Filter")
+    analysis_type = st.selectbox("Choose Analysis Type", ["Descriptive", "Predictive"])
+
+# Main area for displaying results
+st.header("Data and Results")
+
+# Function to load rules from the .py file
+def load_rules(file_path):
+    spec = importlib.util.spec_from_file_location("rule_module", file_path)
+    rule_module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(rule_module)
+    return rule_module
+
+if rule_file is not None:
+    st.subheader("Rule File Content")
     
-    The file should define one or more functions to check the data, e.g.:
-    ```python
-    def check_missing_values(df):
-        return df[df['some_column'].isnull()]
-    ```
-    """)
+    # Save the uploaded file to a temporary location
+    with open("temp_rule_file.py", "wb") as f:
+        f.write(rule_file.read())
     
-    rule_file = st.file_uploader("Choose a Python (.py) file", type=["py"])
+    # Load the rules from the .py file
+    rule_module = load_rules("temp_rule_file.py")
+    
+    st.write("Rules loaded successfully!")
 
-    if rule_file:
-        st.success("✅ Rule file uploaded successfully.")
-        
-        # Save uploaded rule file temporarily
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".py") as tmp_file:
-            tmp_file.write(rule_file.getvalue())
-            rule_file_path = tmp_file.name
+if excel_file is not None:
+    st.subheader("Excel Data")
+    df = pd.read_excel(excel_file)
+    st.dataframe(df)
 
-        # Dynamically import the uploaded rule file
-        spec = importlib.util.spec_from_file_location("rules_module", rule_file_path)
-        rules_module = importlib.util.module_from_spec(spec)
+    if filter_data:
+        st.subheader("Filtered Data")
+        # Assuming there is a column named 'TB_Cases' for filtering
+        filtered_df = df[df['TB_Cases'] > 10]  # Example filter condition
+        st.dataframe(filtered_df)
+
+    st.subheader("Analysis Type")
+    st.write(f"Selected analysis type: {analysis_type}")
+
+    # Apply rules based on the loaded module
+    if rule_module is not None:
         try:
-            spec.loader.exec_module(rules_module)
-            st.success("✅ Rule file loaded and imported.")
-            
-            # List functions from rule file
-            rule_functions = [func for func in dir(rules_module) if callable(getattr(rules_module, func)) and not func.startswith("__")]
-            st.markdown("### 📋 Functions Found in Rule File:")
-            st.write(rule_functions)
+            # Assuming there is a function called 'apply_rules' in the rule_module
+            processed_data = rule_module.apply_rules(df)  # Apply rules to the data
+            st.subheader("Processed Data with Rules")
+            st.dataframe(processed_data)
+        except AttributeError:
+            st.error("Error: The rule file must contain a function called 'apply_rules'.")
         except Exception as e:
-            st.error(f"❌ Error loading rule file: {e}")
+            st.error(f"An error occurred while applying the rules: {e}")
 
-# --- Tab 2: Excel Upload ---
-with tab2:
-    st.header("📊 Upload TB Excel Data")
-    excel_file = st.file_uploader("Choose an Excel file (.xlsx)", type=["xlsx"])
+# Clean up temporary file
+if os.path.exists("temp_rule_file.py"):
+    os.remove("temp_rule_file.py")
 
-    if excel_file:
-        try:
-            df = pd.read_excel(excel_file)
-            st.success("✅ Excel file uploaded successfully.")
-            st.dataframe(df.head())  # Preview first 5 rows
-            
-            if rule_file:
-                st.markdown("---")
-                st.markdown("### 🔍 Run Checks Using Uploaded Rules")
-                if st.button("Run Rules"):
-                    if 'rules_module' in locals():
-                        results = {}
-                        for func_name in rule_functions:
-                            func = getattr(rules_module, func_name)
-                            try:
-                                result = func(df)
-                                results[func_name] = result
-                            except Exception as e:
-                                results[func_name] = f"❌ Error: {e}"
-                        
-                        st.markdown("### ✅ Rule Check Results")
-                        for rule, result in results.items():
-                            st.markdown(f"#### 🔎 {rule}")
-                            if isinstance(result, pd.DataFrame):
-                                if not result.empty:
-                                    st.warning(f"⚠️ Issues found by `{rule}`:")
-                                    st.dataframe(result)
-                                else:
-                                    st.success(f"✅ `{rule}` passed. No issues found.")
-                            else:
-                                st.error(f"{result}")
-                    else:
-                        st.warning("Please upload a valid rule file in the first tab.")
-            else:
-                st.info("Upload a rule file first to enable data checking.")
-        except Exception as e:
-            st.error(f"❌ Failed to read Excel file: {e}")
+# Footer
+st.markdown("---")
+st.write("Developed by [Your Name]")
