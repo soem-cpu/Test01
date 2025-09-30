@@ -47,26 +47,33 @@ if excel_file is not None:
     df = pd.read_excel(excel_file)
     st.dataframe(df)
 
-    if filter_data:
-        st.subheader("Filtered Data")
-        # Assuming there is a column named 'TB_Cases' for filtering
-        filtered_df = df[df['TB_Cases'] > 10]  # Example filter condition
-        st.dataframe(filtered_df)
-
-    st.subheader("Analysis Type")
-    st.write(f"Selected analysis type: {analysis_type}")
-
-    # Apply rules based on the loaded module
     if rule_module is not None:
         try:
-            # Assuming there is a function called 'apply_rules' in the rule_module
-            processed_data = rule_module.apply_rules(df)  # Apply rules to the data
-            st.subheader("Processed Data with Rules")
-            st.dataframe(processed_data)
+            # Assuming the rule file has a function to specify the column name
+            column_name = rule_module.get_column_name()
+            
+            if filter_data:
+                st.subheader("Filtered Data")
+                filtered_df = df[df[column_name] > 10]  # Use the column name from the rule file
+                st.dataframe(filtered_df)
+
+            st.subheader("Analysis Type")
+            st.write(f"Selected analysis type: {analysis_type}")
+
+            # Apply rules based on the loaded module
+            if hasattr(rule_module, 'apply_rules'):
+                processed_data = rule_module.apply_rules(df)  # Apply rules to the data
+                st.subheader("Processed Data with Rules")
+                st.dataframe(processed_data)
+            else:
+                st.error("Error: The rule file must contain a function called 'apply_rules'.")
+            
         except AttributeError:
-            st.error("Error: The rule file must contain a function called 'apply_rules'.")
+            st.error("Error: The rule file must contain a function called 'get_column_name'.")
+        except KeyError as e:
+            st.error(f"Error: The column '{column_name}' specified in the rule file does not exist in the Excel data.")
         except Exception as e:
-            st.error(f"An error occurred while applying the rules: {e}")
+            st.error(f"An error occurred: {e}")
 
 # Clean up temporary file
 if os.path.exists("temp_rule_file.py"):
