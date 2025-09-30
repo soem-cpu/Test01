@@ -85,25 +85,26 @@ if rules_file and data_file:
     # Load the rules module
     rules_module = load_rules(rules_file)
 
+    # Determine file type and read data
+    if data_file.name.endswith("xlsx"):
+        xls = pd.ExcelFile(data_file)
+        sheet_names = xls.sheet_names
+        selected_sheet = st.selectbox("Select a sheet from the Excel file:", sheet_names)
+        df = xls.parse(selected_sheet)
+    else:
+        df = pd.read_csv(data_file)
+
     # Data Preview Section
     st.header("Data Preview")
     try:
-        if data_file.name.endswith("xlsx"):
-            xls = pd.ExcelFile(data_file)
-            preview_sheet = xls.sheet_names[0]
-            df_preview = xls.parse(preview_sheet)
-            st.info(f"Preview of uploaded data (first sheet: {preview_sheet}):")
-            st.dataframe(df_preview.head())
-        else:
-            df_preview = pd.read_csv(data_file)
-            st.info("Preview of uploaded data:")
-            st.dataframe(df_preview.head())
+        st.info("Preview of uploaded data:")
+        st.dataframe(df.head())
     except Exception as e:
         st.error(f"Error previewing data: {e}")
 
     # Apply Rules and Prepare Download
     try:
-        results = rules_module.check_rules(data_file)
+        results = rules_module.check_rules(df)
         excel_output = io.BytesIO()
         sheet_count = 0
 
