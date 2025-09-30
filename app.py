@@ -6,56 +6,69 @@ import io
 # Configuration
 st.set_page_config(page_title="Dynamic Rule-Based Data Verification", layout="wide")
 
-# Custom CSS for improved aesthetics
+# Custom Theme
+primary_color = "#2E9AFE"
+secondary_color = "#D1F2EB"
+text_color = "#2E4053"
+background_color = "#F5F5F5"
+
 st.markdown(
-    """
+    f"""
     <style>
-    .big-font {
+    body {{
+        color: {text_color};
+        background-color: {background_color};
+    }}
+    .big-font {{
         font-size:24px !important;
         font-weight: bold;
-    }
-    .reportview-container {
-        background: #f0f2f6;
-    }
-    .stButton>button {
-        color: #4F8BF9;
-        border: 2px solid #4F8BF9;
-        background-color: #ffffff;
-        transition: all 0.3s ease;
-    }
-    .stButton>button:hover {
-        background-color: #4F8BF9;
+    }}
+    .reportview-container .main .stButton>button {{
         color: white;
-    }
-    .stTextInput>label, .stFileUploader>label {
+        border: 2px solid {primary_color};
+        background-color: {primary_color};
+        transition: all 0.3s ease;
+    }}
+    .reportview-container .main .stButton>button:hover {{
+        background-color: {secondary_color};
+        color: {text_color};
+    }}
+    .stTextInput>label, .stFileUploader>label {{
         font-weight: bold;
-    }
+        color: {text_color};
+    }}
+    .dataframe th {{
+        background-color: {primary_color} !important;
+        color: white !important;
+    }}
     </style>
     """,
     unsafe_allow_html=True,
 )
 
-# App Title and Introduction
-st.title("📊 Dynamic Rule-Based Data Verification App")
+# Title and Introduction with Custom Colors
+st.title(f"📊 Dynamic Rule-Based Data Verification App")
 st.markdown(
-    """
+    f"""
     <p class='big-font'>
         Upload your <strong>Python rules file</strong> and the <strong>Excel/CSV file</strong> you want to verify.
         The app dynamically applies the rules and shows validation results.
-        You can download all results as a multi-sheet Excel file.
+        Download results as a multi-sheet Excel file.
     </p>
     """,
     unsafe_allow_html=True,
 )
 
-# File Upload Section
-st.sidebar.header("File Uploads")
-rules_file = st.sidebar.file_uploader(
-    "Upload Python rules file (.py)", type=["py"], help="Upload a .py file containing your validation rules."
-)
-data_file = st.sidebar.file_uploader(
-    "Upload Excel/CSV file to verify", type=["xlsx", "csv"], help="Upload the data file to be validated."
-)
+# Sidebar with Expanders
+with st.sidebar:
+    st.header("File Uploads")
+    with st.expander("Upload Files"):
+        rules_file = st.file_uploader(
+            "Python Rules File (.py)", type=["py"], help="Upload a .py file containing your validation rules."
+        )
+        data_file = st.file_uploader(
+            "Excel/CSV File to Verify", type=["xlsx", "csv"], help="Upload the data file to be validated."
+        )
 
 # Function to load rules
 def load_rules(rules_file):
