@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import io
+import importlib.util
 
 # Configuration
 st.set_page_config(page_title="Dynamic Rule-Based Data Verification", layout="wide")
@@ -50,16 +51,16 @@ st.title(f"📊 Dynamic Rule-Based Data Verification App")
 st.markdown(
     f"""
     <p class='big-font'>
-        Upload your <strong>Excel/CSV file</strong> to verify.
-        The app dynamically applies the embedded rules and shows validation results.
+        Upload your <strong>Python rules file</strong> and the <strong>Excel/CSV file</strong> you want to verify.
+        The app dynamically applies the rules and shows validation results.
         Download results as a multi-sheet Excel file.
     </p>
     """,
     unsafe_allow_html=True,
 )
 
-# Define rules.py content as a string
-rules_code = """
+# Default rules.py content
+default_rules_code = """
 import pandas as pd
 
 def check_rules(df):
@@ -83,20 +84,47 @@ def check_rules(df):
         return df
 """
 
-# Embed rules
-rules_namespace = {}
-exec(rules_code, rules_namespace)
-check_rules = rules_namespace['check_rules']
-
 # File Upload Section
 st.sidebar.header("File Uploads")
 with st.sidebar.expander("Upload Files"):
+    rules_file = st.file_uploader(
+        "Python Rules File (.py)", type=["py"], help="Upload a .py file containing your validation rules."
+    )
     data_file = st.file_uploader(
         "Excel/CSV File to Verify", type=["xlsx", "csv"], help="Upload the data file to be validated."
     )
 
+# Load rules
+def load_rules(rules_file):
+    if rules_file:
+        with st.spinner("Loading rules..."):
+            try:
+                with open("rules_temp.py", "wb") as f:
+                    f.write(rules_file.getbuffer())
+                spec = importlib.util.spec_from_file_location("rules_module", "rules_temp.py")
+                rules_module = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(rules_module)
+                st.success("✅ Custom rules loaded!", icon="✅")
+                return rules_module
+            except Exception as e:
+                st.error(f"Error loading custom rules: {e}")
+                return None
+    else:
+        with st.spinner("Loading default rules..."):
+            try:
+                rules_namespace = {}
+                exec(default_rules_code, rules_namespace)
+                st.info("ℹ️ Using default rules.", icon="ℹ️")
+                return type('DefaultRules', (object,), rules_namespace)
+            except Exception as e:
+                st.error(f"Error loading default rules: {e}")
+                return None
+
 # Main Logic
 if data_file:
+    # Load the rules module
+    rules_module = load_rules(rules_file)
+
     # Determine file type and read data
     if data_file.name.endswith("xlsx"):
         xls = pd.ExcelFile(data_file)
@@ -115,47 +143,52 @@ if data_file:
         st.error(f"Error previewing data: {e}")
 
     # Apply Rules and Prepare Download
-    try:
-        results = check_rules(df)
-        excel_output = io.BytesIO()
-        sheet_count = 0
+    if rules_module:
+        try:
+            check_rules = rules_module.check_rules if hasattr(rules_module, "check_rules") else rules_module.check_rules
 
-        # Prepare multi-sheet Excel file
-        with pd.ExcelWriter(excel_output, engine='xlsxwriter') as writer:
-            if isinstance(results, dict):
-                st.header("Validation Results:")
-                for k, v in results.items():
-                    st.subheader(k)
-                    if isinstance(v, pd.DataFrame):
-                        if not v.empty:
-                            st.dataframe(v)
-                        else:
-                            st.success(f"✅ No issues found in {k}!")
-                        v.to_excel(writer, index=False, sheet_name=k[:31])
-                        sheet_count += 1
-                    else:
-                        st.write(v)
-            elif isinstance(results, pd.DataFrame):
-                if results.empty:
-                    st.success("✅ No validation issues found!")
-                else:
+            results = check_rules(df)
+            excel_output = io.BytesIO()
+            sheet_count = 0
+
+            # Prepare multi-sheet Excel file
+            with pd.ExcelWriter(excel_output, engine='xlsxwriter') as writer:
+                if isinstance(results, dict):
                     st.header("Validation Results:")
-                    st.dataframe(results)
-                results.to_excel(writer, index=False, sheet_name="Validation")
-                sheet_count += 1
-            else:
-                st.write(results)
+                    for k, v in results.items():
+                        st.subheader(k)
+                        if isinstance(v, pd.DataFrame):
+                            if not v.empty:
+                                st.dataframe(v)
+                            else:
+                                st.success(f"✅ No issues found in {k}!")
+                            v.to_excel(writer, index=False, sheet_name=k[:31])
+                            sheet_count += 1
+                        else:
+                            st.write(v)
+                elif isinstance(results, pd.DataFrame):
+                    if results.empty:
+                        st.success("✅ No validation issues found!")
+                    else:
+                        st.header("Validation Results:")
+                        st.dataframe(results)
+                    results.to_excel(writer, index=False, sheet_name="Validation")
+                    sheet_count += 1
+                else:
+                    st.write(results)
 
-        if sheet_count > 0:
-            st.download_button(
-                label="Download ALL Results as Excel (multi-sheet)",
-                data=excel_output.getvalue(),
-                file_name="all_results.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                use_container_width=True,
-            )
-    except Exception as e:
-        st.error(f"Error running rules: {e}")
+            if sheet_count > 0:
+                st.download_button(
+                    label="Download ALL Results as Excel (multi-sheet)",
+                    data=excel_output.getvalue(),
+                    file_name="all_results.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    use_container_width=True,
+                )
+        except Exception as e:
+            st.error(f"Error running rules: {e}")
+    else:
+        st.warning("No rules loaded. Please upload a rules file.")
 
 # Footer
 st.markdown("---")
