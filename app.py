@@ -1,6 +1,5 @@
 import streamlit as st
 import pandas as pd
-import importlib.util
 import io
 
 # Configuration
@@ -51,40 +50,53 @@ st.title(f"📊 Dynamic Rule-Based Data Verification App")
 st.markdown(
     f"""
     <p class='big-font'>
-        Upload your <strong>Python rules file</strong> and the <strong>Excel/CSV file</strong> you want to verify.
-        The app dynamically applies the rules and shows validation results.
+        Upload your <strong>Excel/CSV file</strong> to verify.
+        The app dynamically applies the embedded rules and shows validation results.
         Download results as a multi-sheet Excel file.
     </p>
     """,
     unsafe_allow_html=True,
 )
 
-# Sidebar with Expanders
-with st.sidebar:
-    st.header("File Uploads")
-    with st.expander("Upload Files"):
-        rules_file = st.file_uploader(
-            "Python Rules File (.py)", type=["py"], help="Upload a .py file containing your validation rules."
-        )
-        data_file = st.file_uploader(
-            "Excel/CSV File to Verify", type=["xlsx", "csv"], help="Upload the data file to be validated."
-        )
+# Define rules.py content as a string
+rules_code = """
+import pandas as pd
 
-# Function to load rules
-def load_rules(rules_file):
-    with open("rules_temp.py", "wb") as f:
-        f.write(rules_file.getbuffer())
-    spec = importlib.util.spec_from_file_location("rules_module", "rules_temp.py")
-    rules_module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(rules_module)
-    st.success("✅ Rules file loaded!", icon="✅")
-    return rules_module
+def check_rules(df):
+    '''Check the given DataFrame against a set of rules.'''
+    
+    # Example rule: Check if 'column1' exists
+    if 'column1' not in df.columns:
+        return "Error: 'column1' not found"
+    
+    # Example rule: Check if 'column2' has any missing values
+    if df['column2'].isnull().any():
+        return "Error: 'column2' has missing values"
+    
+    # Example: Create a DataFrame with rows that failed validation
+    failed_rows = df[df['column3'] < 0]
+    
+    # If there are failed rows, return them in a dict, else return the whole df
+    if not failed_rows.empty:
+        return {'Failed Validation': failed_rows}
+    else:
+        return df
+"""
+
+# Embed rules
+rules_namespace = {}
+exec(rules_code, rules_namespace)
+check_rules = rules_namespace['check_rules']
+
+# File Upload Section
+st.sidebar.header("File Uploads")
+with st.sidebar.expander("Upload Files"):
+    data_file = st.file_uploader(
+        "Excel/CSV File to Verify", type=["xlsx", "csv"], help="Upload the data file to be validated."
+    )
 
 # Main Logic
-if rules_file and data_file:
-    # Load the rules module
-    rules_module = load_rules(rules_file)
-
+if data_file:
     # Determine file type and read data
     if data_file.name.endswith("xlsx"):
         xls = pd.ExcelFile(data_file)
@@ -104,7 +116,7 @@ if rules_file and data_file:
 
     # Apply Rules and Prepare Download
     try:
-        results = rules_module.check_rules(df)
+        results = check_rules(df)
         excel_output = io.BytesIO()
         sheet_count = 0
 
