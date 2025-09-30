@@ -1,84 +1,136 @@
 import streamlit as st
 import pandas as pd
 import importlib.util
-import os
+import io
 
-# Title of the app
-st.title("Tuberculosis Data Analysis App")
+# Configuration
+st.set_page_config(page_title="Dynamic Rule-Based Data Verification", layout="wide")
 
-# Image URL
-image_url = "https://upload.wikimedia.org/wikipedia/commons/thumb/3/3c/Pulmonary_tuberculosis_01.jpg/640px-Pulmonary_tuberculosis_01.jpg"
-st.image(image_url, caption="Understanding Tuberculosis Data")
+# Custom CSS for improved aesthetics
+st.markdown(
+    """
+    <style>
+    .big-font {
+        font-size:24px !important;
+        font-weight: bold;
+    }
+    .reportview-container {
+        background: #f0f2f6;
+    }
+    .stButton>button {
+        color: #4F8BF9;
+        border: 2px solid #4F8BF9;
+        background-color: #ffffff;
+        transition: all 0.3s ease;
+    }
+    .stButton>button:hover {
+        background-color: #4F8BF9;
+        color: white;
+    }
+    .stTextInput>label, .stFileUploader>label {
+        font-weight: bold;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
 
-# File uploaders
-rule_file = st.file_uploader("Upload Rule File (.py)", type=["py"])
-excel_file = st.file_uploader("Upload Excel File (.xlsx, .xls)", type=["xlsx", "xls"])
+# App Title and Introduction
+st.title("📊 Dynamic Rule-Based Data Verification App")
+st.markdown(
+    """
+    <p class='big-font'>
+        Upload your <strong>Python rules file</strong> and the <strong>Excel/CSV file</strong> you want to verify.
+        The app dynamically applies the rules and shows validation results.
+        You can download all results as a multi-sheet Excel file.
+    </p>
+    """,
+    unsafe_allow_html=True,
+)
 
-# Sidebar for additional options
-with st.sidebar:
-    st.header("Analysis Options")
-    filter_data = st.checkbox("Apply Data Filter")
-    analysis_type = st.selectbox("Choose Analysis Type", ["Descriptive", "Predictive"])
+# File Upload Section
+st.sidebar.header("File Uploads")
+rules_file = st.sidebar.file_uploader(
+    "Upload Python rules file (.py)", type=["py"], help="Upload a .py file containing your validation rules."
+)
+data_file = st.sidebar.file_uploader(
+    "Upload Excel/CSV file to verify", type=["xlsx", "csv"], help="Upload the data file to be validated."
+)
 
-# Main area for displaying results
-st.header("Data and Results")
+# Function to load rules
+def load_rules(rules_file):
+    with open("rules_temp.py", "wb") as f:
+        f.write(rules_file.getbuffer())
+    spec = importlib.util.spec_from_file_location("rules_module", "rules_temp.py")
+    rules_module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(rules_module)
+    st.success("✅ Rules file loaded!", icon="✅")
+    return rules_module
 
-# Function to load rules from the .py file
-def load_rules(file_path):
-    spec = importlib.util.spec_from_file_location("rule_module", file_path)
-    rule_module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(rule_module)
-    return rule_module
+# Main Logic
+if rules_file and data_file:
+    # Load the rules module
+    rules_module = load_rules(rules_file)
 
-if rule_file is not None:
-    st.subheader("Rule File Content")
-    
-    # Save the uploaded file to a temporary location
-    with open("temp_rule_file.py", "wb") as f:
-        f.write(rule_file.read())
-    
-    # Load the rules from the .py file
-    rule_module = load_rules("temp_rule_file.py")
-    
-    st.write("Rules loaded successfully!")
+    # Data Preview Section
+    st.header("Data Preview")
+    try:
+        if data_file.name.endswith("xlsx"):
+            xls = pd.ExcelFile(data_file)
+            preview_sheet = xls.sheet_names[0]
+            df_preview = xls.parse(preview_sheet)
+            st.info(f"Preview of uploaded data (first sheet: {preview_sheet}):")
+            st.dataframe(df_preview.head())
+        else:
+            df_preview = pd.read_csv(data_file)
+            st.info("Preview of uploaded data:")
+            st.dataframe(df_preview.head())
+    except Exception as e:
+        st.error(f"Error previewing data: {e}")
 
-if excel_file is not None:
-    st.subheader("Excel Data")
-    df = pd.read_excel(excel_file)
-    st.dataframe(df)
+    # Apply Rules and Prepare Download
+    try:
+        results = rules_module.check_rules(data_file)
+        excel_output = io.BytesIO()
+        sheet_count = 0
 
-    if rule_module is not None:
-        try:
-            # Assuming the rule file has a function to specify the column name
-            column_name = rule_module.get_column_name()
-            
-            if filter_data:
-                st.subheader("Filtered Data")
-                filtered_df = df[df[column_name] > 10]  # Use the column name from the rule file
-                st.dataframe(filtered_df)
-
-            st.subheader("Analysis Type")
-            st.write(f"Selected analysis type: {analysis_type}")
-
-            # Apply rules based on the loaded module
-            if hasattr(rule_module, 'apply_rules'):
-                processed_data = rule_module.apply_rules(df)  # Apply rules to the data
-                st.subheader("Processed Data with Rules")
-                st.dataframe(processed_data)
+        # Prepare multi-sheet Excel file
+        with pd.ExcelWriter(excel_output, engine='xlsxwriter') as writer:
+            if isinstance(results, dict):
+                st.header("Validation Results:")
+                for k, v in results.items():
+                    st.subheader(k)
+                    if isinstance(v, pd.DataFrame):
+                        if not v.empty:
+                            st.dataframe(v)
+                        else:
+                            st.success(f"✅ No issues found in {k}!")
+                        v.to_excel(writer, index=False, sheet_name=k[:31])
+                        sheet_count += 1
+                    else:
+                        st.write(v)
+            elif isinstance(results, pd.DataFrame):
+                if results.empty:
+                    st.success("✅ No validation issues found!")
+                else:
+                    st.header("Validation Results:")
+                    st.dataframe(results)
+                results.to_excel(writer, index=False, sheet_name="Validation")
+                sheet_count += 1
             else:
-                st.error("Error: The rule file must contain a function called 'apply_rules'.")
-            
-        except AttributeError:
-            st.error("Error: The rule file must contain a function called 'get_column_name'.")
-        except KeyError as e:
-            st.error(f"Error: The column '{column_name}' specified in the rule file does not exist in the Excel data.")
-        except Exception as e:
-            st.error(f"An error occurred: {e}")
+                st.write(results)
 
-# Clean up temporary file
-if os.path.exists("temp_rule_file.py"):
-    os.remove("temp_rule_file.py")
+        if sheet_count > 0:
+            st.download_button(
+                label="Download ALL Results as Excel (multi-sheet)",
+                data=excel_output.getvalue(),
+                file_name="all_results.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True,
+            )
+    except Exception as e:
+        st.error(f"Error running rules: {e}")
 
 # Footer
 st.markdown("---")
-st.write("Developed by [Your Name]")
+st.markdown("Created with Streamlit")
